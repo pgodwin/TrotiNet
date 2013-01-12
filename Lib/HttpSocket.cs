@@ -276,6 +276,50 @@ namespace TrotiNet
             return AvailableData;
         }
 
+
+        /// <summary>
+        /// Transfer data from the socket to the specified packet handler with Async Mode
+        /// This is Just For A SSL Tunneling
+        /// </summary>
+        /// <returns>The number of bytes sent</returns>
+        public IAsyncResult TunnelDataAsyncTo(HttpSocket dest)
+        {
+            byte[] buffer = new byte[4096];
+            IAsyncResult Result = LowLevelSocket.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, new AsyncCallback((ar) =>
+                {
+                    try
+                    {
+                        int Ret = (int)ar.AsyncState;
+                        
+                        Ret = LowLevelSocket.EndReceive(ar);
+                        if (Ret > 0)
+                        {
+                            dest.WriteBinary(buffer, 0, (uint)Ret);
+                        }
+                        else
+                        {
+                            CloseSocket();
+                        }
+                    }
+                    catch {  }
+                }), new int());
+            return Result;
+        }
+
+        /// <summary>
+        /// Send A 200 Header For Confirm Tunnel
+        /// This is Just For A SSL Tunneling
+        /// </summary>
+        /// <returns>The number of bytes sent</returns>
+        public void SendConnectedEstablished(string HttpVersion)
+        {
+            string VS=HttpVersion;
+            if (VS == "") VS = "1.1";
+            string rq = "HTTP/"+VS+" 200 Connection established\r\nProxy-Agent: Skyliver Proxy Groups System (HTTPS Mode)\r\n\r\n";
+            WriteBinary(System.Text.Encoding.ASCII.GetBytes(rq));
+        }
+
+
         /// <summary>
         /// Transfer data from this socket to the destination socket
         /// until this socket closes
