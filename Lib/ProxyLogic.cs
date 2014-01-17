@@ -555,7 +555,6 @@ namespace TrotiNet
 
             // We call OnReceiveRequest now because Connect() will
             // modify the request URI.
-            State.NextStep = SendRequest;
             OnReceiveRequest();
 
             // Now we parse the request to:
