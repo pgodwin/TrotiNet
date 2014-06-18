@@ -923,10 +923,10 @@ namespace TrotiNet
             //responseStatus.SendTo(this.SocketBP);
             
             //SocketBP.Send407();
-            SocketBP.WriteBinary(System.Text.Encoding.ASCII.GetBytes("HTTP/1.0 " + responseStatus.StatusLine + "\r"));
+            SocketBP.WriteBinary(System.Text.Encoding.ASCII.GetBytes("HTTP/1.0 " + responseStatus.StatusLine));
             ResponseHeaders.SendTo(this.SocketBP);
 
-            SocketBP.WriteBinary(System.Text.Encoding.ASCII.GetBytes("\r\n" + body + "\r\n"));
+            SocketBP.WriteBinary(System.Text.Encoding.ASCII.GetBytes("\r\n" + body));
         }
     }
 
