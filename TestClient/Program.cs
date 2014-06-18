@@ -34,13 +34,14 @@ namespace TestClient
 
             protected override void OnReceiveRequest()
             {
-                Console.WriteLine("-> " + RequestLine + " from HTTP referer " +
+                Console.WriteLine(State.Username + "-> " + RequestLine + " from HTTP referer " +
                     RequestHeaders.Referer);
+                
             }
 
             protected override void OnReceiveResponse()
             {
-                Console.WriteLine("<- " + ResponseStatusLine +
+                Console.WriteLine(State.Username + "<- " + ResponseStatusLine +
                     " with HTTP Content-Length: " +
                     (ResponseHeaders.ContentLength ?? 0));
             }

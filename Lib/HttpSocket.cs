@@ -2,6 +2,7 @@
 //#define DEBUG_IO_1
 
 using System;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
@@ -138,6 +139,8 @@ namespace TrotiNet
  */
             return false;
         }
+
+        
 #endregion
 
 #region I/O level 2: Buffered line-based and raw I/O

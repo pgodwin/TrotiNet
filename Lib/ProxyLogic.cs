@@ -378,10 +378,7 @@ namespace TrotiNet
         /// </summary>
         protected HttpHeaders ResponseHeaders;
 
-        /// <summary>
-        /// True if the Sesson has been authenticated
-        /// </summary>
-        protected bool Authenticated;
+        
 
         /// <summary>
         /// Maintains the internal state for the request currently being
@@ -433,6 +430,22 @@ namespace TrotiNet
             /// Set to true if the IProxyAuthenticator is set and the authentication is required.
             /// </summary>
             public bool AuthenticationRequired;
+
+            /// <summary>
+            /// Returns the username of the user, if authenticated.
+            /// </summary>
+            public string Username;
+
+            /// <summary>
+            /// Returns the password of the user, if authenticated.
+            /// </summary>
+            public string Password;
+
+
+            /// <summary>
+            /// Returns true if the user has been authenticated.
+            /// </summary>
+            public bool Authenticated;
 
 
             /// <summary>
@@ -557,6 +570,8 @@ namespace TrotiNet
                 return;
             }
 
+            
+
             RequestHeaders = new HttpHeaders(SocketBP);
 
             if (RequestLine.Method.Equals("CONNECT"))
@@ -569,16 +584,6 @@ namespace TrotiNet
             }
 
             log.Info("Got request " + RequestLine.RequestLine);
-
-
-
-
-
-
-            // We call OnReceiveRequest now because Connect() will
-            // modify the request URI.
-            OnReceiveRequest();
-
 
             // We need to check to see if authentication is required
             // TODO: move to it's own method
@@ -631,8 +636,10 @@ namespace TrotiNet
                         {
                             log.Info("Received Proxy Authorisation.");
 
+                            State.Username = username;
+                            State.Password = password; // Do we want to keep this cached? Prob not?
+                            State.Authenticated = true;
                             State.AuthenticationRequired = false;
-                            Authenticated = true;
 
                             // Remove the Proxy-Authorisation Headers if they exist
                             ResponseHeaders.RemoveItem(HttpHeaders.Names.PROXY_AUTHORIZATION);
@@ -647,6 +654,13 @@ namespace TrotiNet
             }
 
 
+
+            // We call OnReceiveRequest now because Connect() will
+            // modify the request URI.
+            OnReceiveRequest();
+
+
+           
 
             // Now we parse the request to:
             // 1) find out where we should connect
