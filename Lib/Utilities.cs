@@ -11,7 +11,7 @@ namespace TrotiNet
         /// <summary>
         /// Date format pattern used to parse HTTP date headers in RFC 1123 format.
         /// </summary>
-        private static string PATTERN_RFC1123 = "EEE, dd MMM yyyy HH:mm:ss zzz";
+        private static string PATTERN_RFC1123 = "r";
 
         /// <summary>
         /// Formats the given date according to the RFC 1123 pattern.
@@ -36,9 +36,43 @@ namespace TrotiNet
             if (pattern == null)
                 throw new ArgumentNullException("pattern is null");
 
-            return date.ToString(pattern);
+            return date.ToUniversalTime().ToString(pattern);
+
+        }
 
     }
 
+    public static class StringUtils
+    {
+        /// <summary>
+        /// Get string value after [first] a.
+        /// </summary>
+        public static string Before(this string value, string a)
+        {
+            int posA = value.IndexOf(a);
+            if (posA == -1)
+            {
+                return "";
+            }
+            return value.Substring(0, posA);
+        }
+
+        /// <summary>
+        /// Get string value after [last] a.
+        /// </summary>
+        public static string After(this string value, string a)
+        {
+            int posA = value.LastIndexOf(a);
+            if (posA == -1)
+            {
+                return "";
+            }
+            int adjustedPosA = posA + a.Length;
+            if (adjustedPosA >= value.Length)
+            {
+                return "";
+            }
+            return value.Substring(adjustedPosA);
+        }
     }
 }

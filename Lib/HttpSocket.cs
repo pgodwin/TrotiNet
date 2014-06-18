@@ -555,6 +555,14 @@ namespace TrotiNet
         }
 
         /// <summary>
+        /// Send a HTTP 407 error over the socket
+        /// </summary>
+        public void Send407()
+        {
+            SendHttpError("407 Proxy Authentication Required");
+        }
+
+        /// <summary>
         /// Tunnel a HTTP-chunked blob of data
         /// </summary>
         /// <param name="dest">The destination socket</param>

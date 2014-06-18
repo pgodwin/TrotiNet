@@ -830,6 +830,7 @@ namespace TrotiNet
         /// <param name="HeaderName"></param>
         internal void RemoveItem(string headerName)
         {
+            headerName = headerName.ToLower();
             // Nothing to do if the header doesn't exist
             if (Headers.ContainsKey(headerName))
             {
