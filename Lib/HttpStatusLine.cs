@@ -8,29 +8,14 @@ namespace TrotiNet
     /// </summary>
     public class HttpStatusLine
     {
-        /// <summary>
-        /// The version of the HTTP protocol.
-        /// </summary>
-        /// <remarks>
-        /// For example, "1.1" means "HTTP/1.1"
-        /// </remarks>
-        public string ProtocolVersion { get; protected set; }
 
-        /// <summary>
-        /// The parsed HTTP status code
-        /// </summary>
-        /// <remarks>
-        /// Integer value between 100 and 599 included
-        /// </remarks>
-        public int StatusCode { get; protected set; }
-
-        /// <summary>
-        /// Original status line as seen in the TCP stream
-        /// </summary>
-        public readonly string StatusLine;
+        public HttpStatusLine()
+        {
+        }
 
         internal HttpStatusLine(HttpSocket hs)
         {
+            // TODO: Move this out, this is parsing of the value.
             string line;
             do
                 line = hs.ReadAsciiLine().Trim();
@@ -58,6 +43,38 @@ namespace TrotiNet
             StatusCode = int.Parse(code);
             StatusLine = line;
         }
+
+        public HttpStatusLine(int statusCode, string reasonPhrase)
+        {
+            this.StatusCode = statusCode;
+            this.ReasonPhrase = reasonPhrase;
+
+            this.StatusLine = string.Format("{0} {1}", this.StatusCode, this.ReasonPhrase);
+        }
+    
+        /// <summary>
+        /// The version of the HTTP protocol.
+        /// </summary>
+        /// <remarks>
+        /// For example, "1.1" means "HTTP/1.1"
+        /// </remarks>
+        public string ProtocolVersion { get; protected set; }
+
+        /// <summary>
+        /// The parsed HTTP status code
+        /// </summary>
+        /// <remarks>
+        /// Integer value between 100 and 599 included
+        /// </remarks>
+        public int StatusCode { get; set; }
+
+        public string ReasonPhrase { get; set; }
+
+        /// <summary>
+        /// Original status line as seen in the TCP stream
+        /// </summary>
+        public readonly string StatusLine;
+
         readonly char[] sp = { ' ' };
 
         internal void SendTo(HttpSocket hs)

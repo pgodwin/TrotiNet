@@ -447,7 +447,7 @@ namespace TrotiNet
 
         }
 
-        enum HeaderType
+        internal enum HeaderType
         {
             Uint,
             String,
@@ -653,7 +653,7 @@ namespace TrotiNet
             throw new NotImplementedException();
         }
 
-        T GetItem<T>(string header_name)
+        internal T GetItem<T>(string header_name)
         {
             System.Diagnostics.Debug.Assert(header_name.Equals(
                 header_name.ToLower()));
@@ -753,7 +753,7 @@ namespace TrotiNet
             // want).
         }
 
-        void SetItem(string HeaderName, object value, HeaderType ht)
+        internal void SetItem(string HeaderName, object value, HeaderType ht)
         {
             string header_name = HeaderName.ToLower();
 
@@ -822,6 +822,41 @@ namespace TrotiNet
             }
             else
                 HeadersInOrder += HeaderName + ": " + s + "\r\n";
+        }
+
+        /// <summary>
+        /// Removes *ALL* headers of the specified name
+        /// </summary>
+        /// <param name="HeaderName"></param>
+        internal void RemoveItem(string headerName)
+        {
+            // Nothing to do if the header doesn't exist
+            if (Headers.ContainsKey(headerName))
+            {
+                Headers.Remove(headerName);
+
+                // Update HeadersInOrder
+                // TODO: Move this to it's own method
+                string[] items = HeadersInOrder.Split(CRLF_a,
+                    StringSplitOptions.RemoveEmptyEntries);
+                StringBuilder sb = new StringBuilder(512);
+                foreach (string item in items)
+                {
+                    var iSplit = item.IndexOf(':');
+                    System.Diagnostics.Debug.Assert(iSplit > 0);
+                    var hn = item.Substring(0, iSplit).Trim().ToLower();
+                    // Re-add the header if it's not the one we're removing
+                    if (!hn.Equals(headerName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        sb.Append(item);
+                    }
+
+                    sb.Append("\r\n");
+                }
+                HeadersInOrder = sb.ToString();
+
+            }
+
         }
 
         static readonly string[] CRLF_a = { "\r\n" };

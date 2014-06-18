@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -59,6 +60,11 @@ namespace TrotiNet
         /// Socket dedicated to the proxy-server (remote) communication
         /// </summary>
         protected HttpSocket SocketPS;
+
+        /// <summary>
+        /// Optional - Allows an implementation to Handle Authentication Requests
+        /// </summary>
+        protected IProxyAuthenticator Authenticator { get; set; }
 
         /// <summary>
         /// Common constructor for proxies; one proxy instance is created
@@ -373,6 +379,11 @@ namespace TrotiNet
         protected HttpHeaders ResponseHeaders;
 
         /// <summary>
+        /// True if the Sesson has been authenticated
+        /// </summary>
+        protected bool Authenticated;
+
+        /// <summary>
         /// Maintains the internal state for the request currently being
         /// processed
         /// </summary>
@@ -417,6 +428,12 @@ namespace TrotiNet
             /// about whether the BP connection should persist
             /// </summary>
             public bool bUseDefaultPersistBP;
+
+            /// <summary>
+            /// Set to true if the IProxyAuthenticator is set and the authentication is required.
+            /// </summary>
+            public bool AuthenticationRequired;
+
 
             /// <summary>
             /// When set to not null, will be called every time a raw fragment
@@ -556,6 +573,75 @@ namespace TrotiNet
             // modify the request URI.
             State.NextStep = SendRequest;
             OnReceiveRequest();
+
+
+            // We need to check to see if authentication is required
+            // TODO: move to it's own method
+            // Check to see if the Authenticator has been set, if it hasn't 
+            // we can skip the whole process.
+            if (this.Authenticator != null)
+            {
+                log.Debug("Authenticator has been specified.");
+                // Proxy is configured to require authentication. 
+                // Check for the 'Proxy-Authorisation' header. If it doesn't exist, 
+                // tell the browser we want to be authenticated.
+                if (!RequestHeaders.Headers.ContainsKey(HttpHeaders.Names.PROXY_AUTHORIZATION))
+                {
+                    log.Debug("Found Proxy-Authorisation header");
+                    State.AuthenticationRequired = true;
+                    SendAuthenticationRequired();
+                    return;
+                }
+
+                // If we have a username/password returned, it should be in our Porxy-Authorisation headers
+                var authorisationHeaders = RequestHeaders.GetItem<string[]>(HttpHeaders.Names.PROXY_AUTHORIZATION);
+                // There should be a header with value basic, if so grab it and decode the 
+                var authValue = authorisationHeaders.FirstOrDefault(h => h.StartsWith("Basic"));
+                if (authValue == null)
+                {
+                    // We haven't found the username and password
+                    log.Error("Could not find the Basic Authentication header.");
+                    // Request the Authentication Again
+                    State.AuthenticationRequired = true;
+                    SendAuthenticationRequired();
+                    return;
+                }
+                else
+                {
+                    var encPassword = authValue.Substring(authValue.LastIndexOf("Basic ")).Trim();
+                    var decodedValue = Encoding.UTF8.GetString(Convert.FromBase64String(encPassword));
+                    try
+                    {
+                        var values = decodedValue.Split(':');
+                        var username = values[0];
+                        var password = values[1];
+
+                        if (!this.Authenticator.Authenticate(username, password))
+                        {
+                            log.Debug("Could not authenticate user " + username);
+                            State.AuthenticationRequired = true;
+                            SendAuthenticationRequired();
+                            return;
+                        }
+                        else
+                        {
+                            log.Info("Received Proxy Authorisation.");
+
+                            State.AuthenticationRequired = false;
+                            Authenticated = true;
+
+                            // Remove the Proxy-Authorisation Headers if they exist
+                            RequestHeaders.RemoveItem(HttpHeaders.Names.PROXY_AUTHORIZATION);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        log.Error("Could not decode username/password?", ex);
+                    }
+                }
+
+            }
+
 
             // Now we parse the request to:
             // 1) find out where we should connect
@@ -806,6 +892,28 @@ namespace TrotiNet
         {
             ResponseStatusLine.SendTo(SocketBP);
             ResponseHeaders.SendTo(SocketBP);
+        }
+
+        protected void SendAuthenticationRequired()
+        {
+            String body = "<!DOCTYPE HTML \"-//IETF//DTD HTML 2.0//EN\">\n"
+              + "<html><head>\n"
+              + "<title>407 Proxy Authentication Required</title>\n"
+              + "</head><body>\n"
+              + "<h1>Proxy Authentication Required</h1>\n"
+              + "<p>This server could not verify that you\n"
+              + "are authorized to access the document\n"
+              + "requested.  Either you supplied the wrong\n"
+              + "credentials (e.g., bad password), or your\n"
+              + "browser doesn't understand how to supply\n"
+              + "the credentials required.</p>\n" + "</body></html>\n";
+
+            ResponseStatusLine.StatusCode = 407;
+            ResponseStatusLine.ReasonPhrase = "Proxy Authentication Required";
+            ResponseHeaders.SetItem(HttpHeaders.Names.PROXY_AUTHENTICATE, "Basic realm=\"Proxy Test\"", HttpHeaders.HeaderType.String);
+            ResponseHeaders.SetItem(HttpHeaders.Names.DATE, Utilities.FormatDate(DateTime.Now),
+                HttpHeaders.HeaderType.String);
+            SendResponseStatusAndHeaders();
         }
     }
 
