@@ -459,8 +459,8 @@ namespace TrotiNet
         /// </summary>
         public string CacheControl
         {
-            get { return GetItem<string>("Cache-Control"); }
-            set { SetItem("Cache-Control", value, HeaderType.String); }
+            get { return GetItem<string>(HttpHeaders.Names.CACHE_CONTROL); }
+            set { SetItem(HttpHeaders.Names.CACHE_CONTROL, value, HeaderType.String); }
         }
 
         /// <summary>
@@ -468,8 +468,8 @@ namespace TrotiNet
         /// </summary>
         public string[] Connection
         {
-            get { return GetItem<string[]>("connection"); }
-            set { SetItem("Connection", value, HeaderType.Strings); }
+            get { return GetItem<string[]>(HttpHeaders.Names.CONNECTION.ToLower()); }
+            set { SetItem(HttpHeaders.Names.CONNECTION, value, HeaderType.Strings); }
         }
 
         /// <summary>
@@ -477,8 +477,8 @@ namespace TrotiNet
         /// </summary>
         public string ContentEncoding
         {
-            get { return GetItem<string>("content-encoding"); }
-            set { SetItem("Content-Encoding", value, HeaderType.String); }
+            get { return GetItem<string>(HttpHeaders.Names.CONTENT_ENCODING.ToLower()); }
+            set { SetItem(HttpHeaders.Names.CONTENT_ENCODING, value, HeaderType.String); }
         }
 
         /// <summary>
@@ -486,8 +486,8 @@ namespace TrotiNet
         /// </summary>
         public uint? ContentLength
         {
-            get { return GetItem<uint?>("content-length"); }
-            set { SetItem("Content-Length", value, HeaderType.Uint); }
+            get { return GetItem<uint?>(HttpHeaders.Names.CONTENT_LENGTH.ToLower()); }
+            set { SetItem(HttpHeaders.Names.CONTENT_LENGTH, value, HeaderType.Uint); }
         }
 
         /// <summary>
@@ -495,8 +495,8 @@ namespace TrotiNet
         /// </summary>
         public string Expires
         {
-            get { return GetItem<string>("Expires"); }
-            set { SetItem("Expires", value, HeaderType.String); }
+            get { return GetItem<string>(HttpHeaders.Names.EXPIRES); }
+            set { SetItem(HttpHeaders.Names.EXPIRES, value, HeaderType.String); }
         }
 
         /// <summary>
@@ -504,8 +504,8 @@ namespace TrotiNet
         /// </summary>
         public string Pragma
         {
-            get { return GetItem<string>("Pragma"); }
-            set { SetItem("Pragma", value, HeaderType.String); }
+            get { return GetItem<string>(HttpHeaders.Names.PRAGMA); }
+            set { SetItem(HttpHeaders.Names.PRAGMA, value, HeaderType.String); }
         }
 
         /// <summary>
@@ -531,8 +531,8 @@ namespace TrotiNet
         /// </summary>
         public string Host
         {
-            get { return GetItem<string>("host"); }
-            set { SetItem("Host", value, HeaderType.String); }
+            get { return GetItem<string>(HttpHeaders.Names.HOST.ToLower()); }
+            set { SetItem(HttpHeaders.Names.HOST, value, HeaderType.String); }
         }
 
         /// <summary>
@@ -560,8 +560,8 @@ namespace TrotiNet
         /// </summary>
         public string Referer
         {
-            get { return GetItem<string>("referer"); }
-            set { SetItem("Referer", value, HeaderType.String); }
+            get { return GetItem<string>(HttpHeaders.Names.REFERER.ToLower()); }
+            set { SetItem(HttpHeaders.Names.REFERER, value, HeaderType.String); }
         }
 
         /// <summary>
@@ -569,8 +569,14 @@ namespace TrotiNet
         /// </summary>
         public string[] TransferEncoding
         {
-            get { return GetItem<string[]>("transfer-encoding"); }
-            set { SetItem("Transfer-Encoding", value, HeaderType.Strings); }
+            get { return GetItem<string[]>(HttpHeaders.Names.TRANSFER_ENCODING.ToLower()); }
+            set { SetItem(HttpHeaders.Names.TRANSFER_ENCODING, value, HeaderType.Strings); }
+        }
+
+        public string UserAgent
+        {
+            get { return GetItem<string>(HttpHeaders.Names.USER_AGENT.ToLower()); }
+            set { SetItem(HttpHeaders.Names.USER_AGENT, value, HeaderType.String); }
         }
 
         /// <summary>
@@ -642,6 +648,7 @@ namespace TrotiNet
             ProxyConnection = ParseMultipleStringValues("proxy-connection");
             Referer = ParseStringValue("referer");
             TransferEncoding = ParseMultipleStringValues("transfer-encoding");
+            UserAgent = ParseStringValue("user-agent");
         }
 
         /// <summary>
@@ -660,6 +667,13 @@ namespace TrotiNet
             object o = null;
             ParsedHeaders.TryGetValue(header_name, out o);
             return (T)o;
+        }
+
+        internal string GetRawItem(string header_name)
+        {
+            string o = null;
+            Headers.TryGetValue(header_name, out o);
+            return o;
         }
 
         /// <summary>

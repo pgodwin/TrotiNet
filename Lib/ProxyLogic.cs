@@ -378,6 +378,10 @@ namespace TrotiNet
         /// </summary>
         protected HttpHeaders ResponseHeaders;
 
+        /// <summary>
+        /// Object to store details of the request for external services.
+        /// </summary>
+        protected RequestDetails RequestDetails;
         
 
         /// <summary>
@@ -570,7 +574,6 @@ namespace TrotiNet
                 return;
             }
 
-            
 
             RequestHeaders = new HttpHeaders(SocketBP);
 
@@ -584,6 +587,8 @@ namespace TrotiNet
             }
 
             log.Info("Got request " + RequestLine.RequestLine);
+
+
 
             // We need to check to see if authentication is required
             // TODO: move to it's own method
@@ -653,7 +658,17 @@ namespace TrotiNet
 
             }
 
+            this.RequestDetails = new RequestDetails
+            {
+                Method = RequestLine.Method,
+                Time = DateTime.Now.ToUniversalTime(),
+                Url = RequestLine.URI,
+                Hostname = new Uri(RequestLine.URI).Host,
+                Username = State.Username,
+                UserAgent = RequestHeaders.UserAgent
+            };
 
+            //logEntry.SourceIP = SocketBP.
 
             // We call OnReceiveRequest now because Connect() will
             // modify the request URI.
@@ -1299,5 +1314,18 @@ namespace TrotiNet
                 return false;
             return true;
         }
+    }
+    /// <summary>
+    /// Object to make it easier to implement custom Proxies
+    /// </summary>
+    public class RequestDetails
+    {
+        public string Username { get; set; }
+        public string SourceIP {get;set;}
+        public string Hostname { get; set; }
+        public string Url { get; set; }
+        public DateTime Time { get; set; }
+        public string Method { get; set; }
+        public string UserAgent { get; set; }
     }
 }

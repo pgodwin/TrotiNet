@@ -34,16 +34,27 @@ namespace TestClient
 
             protected override void OnReceiveRequest()
             {
-                Console.WriteLine(State.Username + "-> " + RequestLine + " from HTTP referer " +
-                    RequestHeaders.Referer);
+                //Console.WriteLine(State.Username + "-> " + RequestLine + " from HTTP referer " +
+                  //  RequestHeaders.Referer);
                 
+                // This is where I'd do filtering if needed
+
+                var requestDetails = RequestDetails;
+                Console.WriteLine("{0} | User: {1} | Host: {2} | Method: {3} | User-Agent: {4}",
+                    requestDetails.Time.ToShortTimeString(),
+                    requestDetails.Username,
+                    requestDetails.Hostname,
+                    requestDetails.Method,
+                    requestDetails.UserAgent);
+
             }
 
             protected override void OnReceiveResponse()
             {
-                Console.WriteLine(State.Username + "<- " + ResponseStatusLine +
-                    " with HTTP Content-Length: " +
-                    (ResponseHeaders.ContentLength ?? 0));
+                //Console.WriteLine(State.Username + "<- " + ResponseStatusLine +
+                  //  " with HTTP Content-Length: " +
+                    //(ResponseHeaders.ContentLength ?? 0));
+
             }
         }
 
@@ -51,6 +62,9 @@ namespace TestClient
         {
             int port = 12345;
             bool bUseIPv6 = false;
+
+            Console.WindowWidth = 200;
+            
 
             var Server = new TcpServer(port, bUseIPv6);
             Server.Start(TransparentProxy.CreateProxy);
