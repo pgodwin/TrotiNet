@@ -3,7 +3,10 @@
 
 using System;
 using System.IO;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace TrotiNet
@@ -13,6 +16,8 @@ namespace TrotiNet
     /// </summary>
     public class HttpSocket: IDisposable
     {
+
+
 #if DEBUG_IO_1
         static readonly log4net.ILog log = Log.Get();
 #endif
@@ -21,6 +26,12 @@ namespace TrotiNet
         /// Socket UID.
         /// </summary>
         public int id;        
+
+        /// <summary>
+        /// Is this socket running over HTTPS
+        /// </summary>
+        public bool IsSecure { get; set; }
+
 
         /// <summary>
         /// Set the TCP Keep Alive option on the socket
@@ -67,6 +78,7 @@ namespace TrotiNet
         public HttpSocket(Socket socket)
         {
             LowLevelSocket = socket;
+            IsSecure = false;
 
             try
             {
@@ -78,6 +90,17 @@ namespace TrotiNet
 
             Buffer = new byte[BufferSize];
             sb = new StringBuilder(128);
+        }
+
+        /// <summary>
+        /// Switches this socket to a secure connection
+        /// </summary>
+        /// <param name="certificateFileName"></param>
+        public void MakeSecure(X509Certificate certificate)
+        {
+            IsSecure = true;
+            LowLevelSecureStream = new SslStream(LowLevelStream, false);
+            LowLevelSecureStream.AuthenticateAsServer(certificate, false, SslProtocols.Tls | SslProtocols.Ssl3 | SslProtocols.Ssl2, true);
         }
 
         /// <summary>
@@ -103,6 +126,11 @@ namespace TrotiNet
         /// Returns the network stream for the wrapped socket
         /// </summary>
         protected Stream LowLevelStream = null;
+
+        /// <summary>
+        /// Returns the secure network stream for the wrapped socket
+        /// </summary>
+        protected SslStream LowLevelSecureStream = null;
 
 #if DEBUG_IO_1
         void Trace(string msg)
@@ -264,7 +292,7 @@ namespace TrotiNet
             Trace("ReadRaw before Receive " + LowLevelSocket.Connected);
 #endif
 
-            int r = LowLevelStream.Read(Buffer, 0, Buffer.Length);
+            int r = IsSecure ? LowLevelSecureStream.Read(Buffer, 0, Buffer.Length) : LowLevelStream.Read(Buffer, 0, Buffer.Length);
             // Notes:
             // - if we are using non-infinite timeouts (not true from
             //  TrotiNet.Test), timeouts would be signalled by thrown
@@ -508,8 +536,16 @@ namespace TrotiNet
         {
             LowLevelSocket.NoDelay = true;
 
-            LowLevelStream.Write(b, (int)offset, (int)nb_bytes);
+            if (IsSecure)
+            {
+                LowLevelSecureStream.Write(b, (int)offset, (int)nb_bytes);
+            }
+            else
+            {
+                LowLevelStream.Write(b, (int)offset, (int)nb_bytes);
+            }
             return nb_bytes;
+
         }
 #endregion
 

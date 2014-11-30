@@ -9,6 +9,7 @@
     using System.Text;
     using log4net;
     using System.Threading;
+    using System.Security.Cryptography.X509Certificates;
 
     /// <summary>
     /// Abstract class for all HTTP proxy logic implementations
@@ -18,6 +19,14 @@
     /// </remarks>
     public abstract class AbstractProxyLogic
     {
+        // TODO make this a configuration
+        static readonly string certificateFileName = "cert.cer";
+
+        /// <summary>
+        /// The SSL certificate used to generate SSL connections with the browser
+        /// </summary>
+        protected static X509Certificate2 certificate = new X509Certificate2(certificateFileName);
+
         static readonly ILog log = Log.Get();
 
         /// <summary>
@@ -648,12 +657,7 @@
             this.State.NextStep = null;
             this.SocketBP.WriteAsciiLine(string.Format("HTTP/{0} 200 Connection established", RequestLine.ProtocolVersion));
             this.SocketBP.WriteAsciiLine(string.Empty);
-            var socketsToConnect = new[] { this.SocketBP, this.SocketPS };
-
-            socketsToConnect
-                .Zip(socketsToConnect.Reverse(), (from, to) => new { from,to })
-                .AsParallel()
-                .ForAll(team => team.from.TunnelDataTo(team.to));
+            this.SocketBP.MakeSecure(certificate);
         }
 
         /// <summary>
