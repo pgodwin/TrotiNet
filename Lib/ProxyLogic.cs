@@ -20,12 +20,12 @@
     public abstract class AbstractProxyLogic
     {
         // TODO make this a configuration
-        static readonly string certificateFileName = "cert.cer";
+        protected static readonly string certificateFileName = "cert.cer";
 
         /// <summary>
         /// The SSL certificate used to generate SSL connections with the browser
         /// </summary>
-        protected static X509Certificate2 certificate = new X509Certificate2(certificateFileName);
+        protected static X509Certificate2 certificate;
 
         static readonly ILog log = Log.Get();
 
@@ -657,6 +657,12 @@
             this.State.NextStep = null;
             this.SocketBP.WriteAsciiLine(string.Format("HTTP/{0} 200 Connection established", RequestLine.ProtocolVersion));
             this.SocketBP.WriteAsciiLine(string.Empty);
+
+            if (certificate == null)
+            {
+                certificate = new X509Certificate2(certificateFileName);
+            }
+
             this.SocketBP.MakeSecure(certificate);
         }
 
