@@ -2,6 +2,7 @@
 //#define DEBUG_IO_1
 
 using System;
+using System.IO;
 using System.Net.Sockets;
 using System.Text;
 
@@ -19,7 +20,7 @@ namespace TrotiNet
         /// <summary>
         /// Socket UID.
         /// </summary>
-        public int id;
+        public int id;        
 
         /// <summary>
         /// Set the TCP Keep Alive option on the socket
@@ -67,6 +68,14 @@ namespace TrotiNet
         {
             LowLevelSocket = socket;
 
+            try
+            {
+                LowLevelStream = new NetworkStream(socket);
+            }
+            catch (IOException)
+            {
+            }
+
             Buffer = new byte[BufferSize];
             sb = new StringBuilder(128);
         }
@@ -89,6 +98,11 @@ namespace TrotiNet
         /// Returns the wrapped socket
         /// </summary>
         protected Socket LowLevelSocket = null;
+
+        /// <summary>
+        /// Returns the network stream for the wrapped socket
+        /// </summary>
+        protected Stream LowLevelStream = null;
 
 #if DEBUG_IO_1
         void Trace(string msg)
@@ -250,7 +264,7 @@ namespace TrotiNet
             Trace("ReadRaw before Receive " + LowLevelSocket.Connected);
 #endif
 
-            int r = LowLevelSocket.Receive(Buffer);
+            int r = LowLevelStream.Read(Buffer, 0, Buffer.Length);
             // Notes:
             // - if we are using non-infinite timeouts (not true from
             //  TrotiNet.Test), timeouts would be signalled by thrown
@@ -493,11 +507,9 @@ namespace TrotiNet
         public uint WriteBinary(byte[] b, uint offset, uint nb_bytes)
         {
             LowLevelSocket.NoDelay = true;
-            int r = LowLevelSocket.Send(b, (int)offset, (int)nb_bytes,
-                SocketFlags.None);
-            if (r < 0)
-                r = 0;
-            return (uint)r;
+
+            LowLevelStream.Write(b, (int)offset, (int)nb_bytes);
+            return nb_bytes;
         }
 #endregion
 
