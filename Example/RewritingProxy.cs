@@ -12,6 +12,10 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Net;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
+using System.Diagnostics;
 
 namespace TrotiNet.Example
 {
@@ -23,11 +27,15 @@ namespace TrotiNet.Example
         static Regex charset_regex = new Regex("charset=([\\w-]*)", RegexOptions.Compiled);
 
         public RewritingProxy(HttpSocket clientSocket)
-            : base(clientSocket) { }
+            : base(clientSocket) 
+        {
+        }
 
         static new public RewritingProxy CreateProxy(HttpSocket clientSocket)
         {
-            return new RewritingProxy(clientSocket);
+            RewritingProxy result = new RewritingProxy(clientSocket);
+
+            return result;
         }
 
         /// <summary>
@@ -76,66 +84,8 @@ namespace TrotiNet.Example
         /// <returns>The HTML body to return to the client</returns>
         string ModifyHTML(string input)
         {
-            // Let's apply ROT13 in <p> tags for fun and profit (?).
-            // This routine is obviously not very serious, as it does not
-            // even handle tag attributes properly.
-            char[] i = input.ToCharArray();
-            int len = i.Length;
-            bool bInsideTag = true;
-            bool bMessAround = false;
-            bool bModifiedSomething = false;
 
-            for(int pos = 0; pos < len; pos++)
-            {
-                if (i[pos] == '<')
-                    bInsideTag = true;
-                else
-                if (i[pos] == '>')
-                    bInsideTag = false;
-
-                if (!bMessAround)
-                {
-                    bMessAround = (pos + 2 < len && i[pos] == '<' &&
-                        i[pos + 1] == 'p');
-                    continue;
-                }
-
-                if (pos + 4 < len && i[pos] == '<' && i[pos + 1] == '/' &&
-                    i[pos + 2] == 'p')
-                {
-                    bMessAround = false;
-                    continue;
-                }
-
-                if (bInsideTag)
-                    continue;
-
-                // Sillyness mode on: apply ROT13 inside <p> tags.
-                if ((i[pos] >= 'A' && i[pos] <= 'Z'))
-                {
-                    i[pos] = (char)(((int)i[pos] - 'A' + 13) % 26 + 'A');
-                    bModifiedSomething = true;
-                }
-                else
-                if ((i[pos] >= 'a' && i[pos] <= 'z'))
-                {
-                    i[pos] = (char)(((int)i[pos] - 'a' + 13) % 26 + 'a');
-                    bModifiedSomething = true;
-                }
-            }
-
-            string output = new String(i);
-            if (bModifiedSomething)
-            {
-                string message = "<p><b>Parts of this page have been " +
-                    "lovingly ROT13'd by TrotiNet for your reading " +
-                    "convenience.</b></p>";
-                output = output.
-                    Replace("</body>", message + "</body>").
-                    Replace("<body>", "<body>" + message);
-            }
-
-            return output;
+            return input;
         }
 
         protected override void OnReceiveResponse()
@@ -218,6 +168,13 @@ namespace TrotiNet.Example
 
             // We are done with the request.
             // Note that State.NextStep has been set to null earlier.
+        }
+
+        protected override X509Certificate OnCertificateNeeded(string hostname)
+        {
+            // for https support you need to return a certificate here
+            // you could create it with makecert.exe for example
+            return null;
         }
 
         static byte[] ReadEverything(Stream input)

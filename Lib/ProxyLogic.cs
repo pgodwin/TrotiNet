@@ -10,6 +10,7 @@
     using log4net;
     using System.Threading;
     using System.Security.Cryptography.X509Certificates;
+    using System.Diagnostics;
 
     /// <summary>
     /// Abstract class for all HTTP proxy logic implementations
@@ -20,12 +21,11 @@
     public abstract class AbstractProxyLogic
     {
         // TODO make this a configuration
-        protected static readonly string certificateFileName = "cert.cer";
+        protected static readonly string rootCertificateFileName = "BrowseEmAllRootCert.cer";
 
         /// <summary>
         /// The SSL certificate used to generate SSL connections with the browser
-        /// </summary>
-        protected static X509Certificate2 certificate;
+        /// </summary>        
 
         static readonly ILog log = Log.Get();
 
@@ -39,27 +39,6 @@
         /// connected
         /// </summary>
         protected string DestinationHostName;
-
-        /// <summary>
-        /// Set to a proxy host name if our proxy is not connecting to
-        /// the internet, but to another proxy instead
-        /// </summary>
-        protected string RelayHttpProxyHost;
-
-        /// <summary>
-        /// Set to a proxy bypass specification if our proxy is not connecting
-        /// to the internet, but to another proxy instead
-        /// </summary>
-        /// <remarks>
-        /// XXX Bypass not implemented
-        /// </remarks>
-        protected string RelayHttpProxyOverride;
-
-        /// <summary>
-        /// Set to a proxy port if our proxy is not connecting to
-        /// the internet, but to another proxy instead
-        /// </summary>
-        protected int RelayHttpProxyPort;
 
         /// <summary>
         /// Socket dedicated to the (client) browser-proxy communication
@@ -93,7 +72,7 @@
         /// If SocketPS is already connected to the right host and port,
         /// the socket is reused as is.
         /// </remarks>
-        protected void Connect(string hostname, int port)
+        protected void Connect(string hostname, int port, bool secure)
         {
             System.Diagnostics.Debug.Assert(!String.IsNullOrEmpty(hostname));
             System.Diagnostics.Debug.Assert(port > 0);
@@ -123,8 +102,7 @@
             {
                 try
                 {
-                    socket = new Socket(ip.AddressFamily, SocketType.Stream,
-                        ProtocolType.Tcp);
+                    socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
                     socket.Connect(ip, port);
                     break;
                 }
@@ -150,6 +128,8 @@
 
             // Checked up, and good to go
             SocketPS = new HttpSocket(socket);
+            if (secure)
+                SocketPS.MakeSecureClient(hostname);
             DestinationHostName = hostname;
             DestinationPort = port;
 
@@ -181,8 +161,13 @@
             HttpRequestLine hrl, HttpHeaders hh_rq, out int port)
         {
             string host = null;
-            bool bIsConnect = hrl.Method.Equals("CONNECT");
-            port = bIsConnect ? 443 : 80;
+            port = DestinationPort;
+
+            if (DestinationPort == 0)
+                port = 80;
+
+            //bool bIsConnect = hrl.Method.Equals("CONNECT");
+            //port = bIsConnect ? 443 : 80;
 
             bool bIsHTTP1_0 = hrl.ProtocolVersion.Equals("1.0");
             if (hrl.URI.Equals("*"))
@@ -223,7 +208,7 @@
             {
                 // case 1
                 authority = hrl.URI;
-                System.Diagnostics.Debug.Assert(bIsConnect);
+                //System.Diagnostics.Debug.Assert(bIsConnect);
             }
             else
                 if (slash > 0) // Strict inequality
@@ -276,12 +261,12 @@
                 // Remove the host from the request URI, unless the "server"
                 // is actually a proxy, in which case the URI should remain
                 // unchanged. (RFC 2616, section 5.1.2)
-                if (RelayHttpProxyHost == null)
-                {
-                    hrl.URI = hrl.URI.Substring(prefix);
-                    log.Debug("Rewriting request line as: " +
-                        hrl.RequestLine);
-                }
+                //if (!UsingHttpProxy)
+                //{
+                //    hrl.URI = hrl.URI.Substring(prefix);
+                //    log.Debug("Rewriting request line as: " +
+                //        hrl.RequestLine);
+                //}
 
                 return host;
             }
@@ -297,8 +282,8 @@
                 host = host.TrimEnd('/');
             else
             {
-                host = host.Substring(0, cp);
                 port = int.Parse(host.Substring(cp + 1));
+                host = host.Substring(0, cp);                
             }
             return host;
         }
@@ -307,26 +292,6 @@
         /// Entry point to HTTP request handling
         /// </summary>
         abstract public bool LogicLoop();
-
-        /// <summary>
-        /// In case of a proxy chain, set the next proxy to contact
-        /// </summary>
-        /// <remarks>
-        /// <c>ProxyOverride</c> is ignored.
-        /// </remarks>
-        public void SetRelayProxy(SystemProxySettings sps)
-        {
-            if (sps == null || !sps.ProxyEnable)
-            {
-                RelayHttpProxyHost = null;
-                RelayHttpProxyPort = 0;
-                return;
-            }
-
-            sps.GetHttpSpecificProxy(out RelayHttpProxyHost,
-                out RelayHttpProxyPort);
-            RelayHttpProxyOverride = null;
-        }
 
         /// <summary>
         /// Message packet handler for tunneling data from PS to BP
@@ -515,6 +480,13 @@
         }
 
         /// <summary>
+        /// Called when a certificate for HTTPS sniffing is needed
+        /// </summary>
+        /// <param name="hostname">The hostname for the certificate, e.g. test.de</param>
+        /// <returns>The certificate used to secure the https tunnel</returns>
+        virtual protected X509Certificate OnCertificateNeeded(string hostname) { return null; }
+
+        /// <summary>
         /// Called when RequestLine and RequestHeaders are set
         /// </summary>
         /// <remarks>
@@ -577,16 +549,23 @@
             // 3) find out whether the BP connection should be kept-alive
             if (State.NextStep != null)
             {
-                // Step 1)
-                if (RelayHttpProxyHost == null)
+
+                int NewDestinationPort;
+                string NewDestinationHost = ParseDestinationHostAndPort(RequestLine, RequestHeaders, out NewDestinationPort);
+
+                // Test if we need a proxy
+                IWebProxy proxy = WebRequest.GetSystemWebProxy();
+                Uri destinationUri = new Uri((SocketBP.IsSecure ? "https://" : "http://") + NewDestinationHost + ":" + NewDestinationPort);
+                Uri proxyUri = proxy.GetProxy(destinationUri);
+
+                if (proxyUri.Equals(destinationUri))
                 {
-                    int NewDestinationPort;
-                    string NewDestinationHost = ParseDestinationHostAndPort(
-                        RequestLine, RequestHeaders, out NewDestinationPort);
-                    Connect(NewDestinationHost, NewDestinationPort);
+                    Connect(NewDestinationHost, NewDestinationPort, destinationUri.Scheme.Equals("https"));
                 }
                 else
-                    Connect(RelayHttpProxyHost, RelayHttpProxyPort);
+                {
+                    Connect(proxyUri.Host, proxyUri.Port, proxyUri.Scheme.Equals("https"));
+                }
 
                 // Step 2)
                 // Find out whether the request has a message body
@@ -635,12 +614,7 @@
                         break;
                     }
                 }
-                if (RelayHttpProxyHost == null)
-                    RequestHeaders.ProxyConnection = null;
             }
-
-            // Note: we do not remove fields mentioned in the
-            //  'Connection' header (the specs say we should).
 
         }
 
@@ -650,20 +624,42 @@
         /// </summary>
         virtual protected void HandleConnect()
         {
+            HttpRequestLine originalRequestLine = new HttpRequestLine(RequestLine.RequestLine);
+
             int NewDestinationPort;
             string NewDestinationHost = ParseDestinationHostAndPort(
                 RequestLine, RequestHeaders, out NewDestinationPort);
-            Connect(NewDestinationHost, NewDestinationPort);
-            this.State.NextStep = null;
-            this.SocketBP.WriteAsciiLine(string.Format("HTTP/{0} 200 Connection established", RequestLine.ProtocolVersion));
-            this.SocketBP.WriteAsciiLine(string.Empty);
+            // Test if we need a proxy
+            IWebProxy proxy = WebRequest.GetSystemWebProxy();
+            Uri destinationUri = new Uri("https://" + NewDestinationHost + ":" + NewDestinationPort);
+            Uri proxyUri = proxy.GetProxy(destinationUri);
 
-            if (certificate == null)
+            if (proxyUri.Equals(destinationUri))
             {
-                certificate = new X509Certificate2(certificateFileName);
+                Connect(NewDestinationHost, NewDestinationPort, destinationUri.Scheme.Equals("https"));
+            }
+            else
+            {
+                Connect(proxyUri.Host, proxyUri.Port, proxyUri.Scheme.Equals("https"));
             }
 
-            this.SocketBP.MakeSecure(certificate);
+            if (proxyUri.Scheme.Equals("http"))
+            {
+                RequestLine = originalRequestLine;
+                RequestLine.SendTo(SocketPS);
+                RequestHeaders.SendTo(SocketPS);
+                ResponseStatusLine = new HttpStatusLine(SocketPS);
+                SocketPS.MakeSecureClient(NewDestinationHost + ":" + NewDestinationPort);                
+            }
+
+            this.State.NextStep = null;
+
+            this.SocketBP.WriteAsciiLine(string.Format("HTTP/{0} 200 Connection established", RequestLine.ProtocolVersion));
+            this.SocketBP.WriteAsciiLine(string.Empty);                
+
+            X509Certificate certificate = OnCertificateNeeded(destinationUri.Host);
+
+            this.SocketBP.MakeSecureServer(certificate);
         }
 
         /// <summary>
@@ -673,6 +669,7 @@
         protected virtual void SendRequest()
         {
             // Transmit the request to the server
+
             RequestLine.SendTo(SocketPS);
             RequestHeaders.SendTo(SocketPS);
             if (State.bRequestHasMessage)
@@ -700,7 +697,8 @@
         {
             // Wait until we receive the response, then parse its header
             ResponseStatusLine = new HttpStatusLine(SocketPS);
-            ResponseHeaders = new HttpHeaders(SocketPS);
+
+            ResponseHeaders = new HttpHeaders(SocketPS);            
 
             // Get bPersistConnectionPS (RFC 2616, section 14.10)
             bool bUseDefaultPersistPS = true;

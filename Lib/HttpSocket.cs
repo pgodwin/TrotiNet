@@ -17,6 +17,7 @@ namespace TrotiNet
     public class HttpSocket: IDisposable
     {
 
+        private X509Certificate certificate;
 
 #if DEBUG_IO_1
         static readonly log4net.ILog log = Log.Get();
@@ -96,12 +97,33 @@ namespace TrotiNet
         /// Switches this socket to a secure connection
         /// </summary>
         /// <param name="certificateFileName"></param>
-        public void MakeSecure(X509Certificate certificate)
+        public void MakeSecureServer(X509Certificate certificate)
         {
+            this.certificate = certificate;
+
+            if (IsSecure)
+                return;
+
             IsSecure = true;
-            LowLevelSecureStream = new SslStream(LowLevelStream, false);
+            LowLevelSecureStream = new SslStream(LowLevelStream, false, AcceptAllCertifications);
             LowLevelSecureStream.AuthenticateAsServer(certificate, false, SslProtocols.Tls | SslProtocols.Ssl3 | SslProtocols.Ssl2, true);
         }
+
+        public void MakeSecureClient(string host)
+        {
+            if (IsSecure)
+                return;
+
+            IsSecure = true;
+            LowLevelSecureStream = new SslStream(LowLevelStream, false, AcceptAllCertifications);
+            LowLevelSecureStream.AuthenticateAsClient(host, new X509CertificateCollection(), SslProtocols.Tls | SslProtocols.Ssl3 | SslProtocols.Ssl2, false);
+            
+        }
+
+        private static bool AcceptAllCertifications(object sender, X509Certificate certification, X509Chain chain, SslPolicyErrors sslPolicyErrors)
+        {
+            return true;
+        } 
 
         /// <summary>
         /// Close the wrapped socket
