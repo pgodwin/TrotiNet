@@ -11,6 +11,7 @@ using System.Linq;
     using log4net;
     using System.Threading;
     using System.Security.Cryptography.X509Certificates;
+    using System.Threading.Tasks;
     using System.Diagnostics;
 
     /// <summary>
@@ -40,6 +41,27 @@ using System.Linq;
         /// connected
         /// </summary>
         protected string DestinationHostName;
+
+        /// <summary>
+        /// Set to a proxy host name if our proxy is not connecting to
+        /// the internet, but to another proxy instead
+        /// </summary>
+        protected string RelayHttpProxyHost;
+
+        /// <summary>
+        /// Set to a proxy bypass specification if our proxy is not connecting
+        /// to the internet, but to another proxy instead
+        /// </summary>
+        /// <remarks>
+        /// XXX Bypass not implemented
+        /// </remarks>
+        protected string RelayHttpProxyOverride;
+
+        /// <summary>
+        /// Set to a proxy port if our proxy is not connecting to
+        /// the internet, but to another proxy instead
+        /// </summary>
+        protected int RelayHttpProxyPort;
 
         /// <summary>
         /// Socket dedicated to the (client) browser-proxy communication
@@ -248,22 +270,6 @@ using System.Linq;
 
             if (host != null)
             {
-#if false
-                // XXX Not sure whether this can happen (without doing ad
-                // replacement) or if we want to prevent it
-                if (hh_rq.Host != null)
-                {
-                    // Does hh_rq.Host and host match? (disregarding
-                    // the potential ":port" prefix of hh_rq.Host)
-                    int c2 = hh_rq.Host.IndexOf(':');
-                    string rq_host = c2 < 0 ? hh_rq.Host :
-                        hh_rq.Host.Substring(0, c2);
-                    if (!rq_host.Equals(host))
-                        // Host discrepancy: fix the 'Host' header
-                        hh_rq.Host = host;
-                }
-#endif
-
                 // Remove the host from the request URI, unless the "server"
                 // is actually a proxy, in which case the URI should remain
                 // unchanged. (RFC 2616, section 5.1.2)
@@ -298,6 +304,26 @@ using System.Linq;
         /// Entry point to HTTP request handling
         /// </summary>
         abstract public bool LogicLoop();
+
+        /// <summary>
+        /// In case of a proxy chain, set the next proxy to contact
+        /// </summary>
+        /// <remarks>
+        /// <c>ProxyOverride</c> is ignored.
+        /// </remarks>
+        public void SetRelayProxy(SystemProxySettings sps)
+        {
+            if (sps == null || !sps.ProxyEnable)
+            {
+                RelayHttpProxyHost = null;
+                RelayHttpProxyPort = 0;
+                return;
+            }
+
+            sps.GetHttpSpecificProxy(out RelayHttpProxyHost,
+                out RelayHttpProxyPort);
+            RelayHttpProxyOverride = null;
+        }
 
         /// <summary>
         /// Message packet handler for tunneling data from PS to BP
@@ -751,6 +777,18 @@ using System.Linq;
         }
 
         /// <summary>
+        /// Handle a websocket handshake and tunnel the two ends
+        /// </summary>
+        private void HandleWebSocket()
+        {
+            this.State.NextStep = null;
+            var socketsToConnect = new[] { this.SocketPS, this.SocketBP };
+            var upDatedSoc = socketsToConnect.Zip(socketsToConnect.Reverse(), (from, to) => new { from, to }).ToList();
+            Parallel.ForEach(upDatedSoc, team => { team.from.TunnelDataTo(team.to); });
+            return;
+        }
+
+        /// <summary>
         /// A specific case for the CONNECT command,
         /// connect both ends blindly (will work for HTTPS, SSH and others)
         /// </summary>
@@ -787,11 +825,16 @@ using System.Linq;
             this.State.NextStep = null;
 
             this.SocketBP.WriteAsciiLine(string.Format("HTTP/{0} 200 Connection established", RequestLine.ProtocolVersion));
-            this.SocketBP.WriteAsciiLine(string.Empty);                
+            this.SocketBP.WriteAsciiLine(string.Empty);
+            var socketsToConnect = new[] { this.SocketBP, this.SocketPS };
 
             X509Certificate certificate = OnCertificateNeeded(destinationUri.Host);
 
             this.SocketBP.MakeSecureServer(certificate);
+            socketsToConnect
+                .Zip(socketsToConnect.Reverse(), (from, to) => new { from,to })
+                .AsParallel()
+                .ForAll(team => team.from.TunnelDataTo(team.to));
         }
 
         /// <summary>
@@ -917,6 +960,17 @@ using System.Linq;
                 sc == 204 || sc == 304 || (sc >= 100 && sc <= 199))
             {
                 SendResponseStatusAndHeaders();
+
+                // Is the connection a websocket one?
+                if (sc == 101)
+                {
+                    string upgradeHeaderValue;
+                    ResponseHeaders.Headers.TryGetValue("upgrade", out upgradeHeaderValue);
+                    if (!string.IsNullOrEmpty(upgradeHeaderValue) && upgradeHeaderValue.ToLower().Equals("websocket"))
+                    {
+                        HandleWebSocket();
+                    }
+                }
                 goto no_message_body;
             }
 
