@@ -9,6 +9,7 @@
  * variable.
  */
 using System;
+using System.Security.Cryptography.X509Certificates;
 
 namespace TrotiNet.Example
 {
@@ -40,6 +41,12 @@ namespace TrotiNet.Example
                 SocketBP.Send403();
                 State.NextStep = AbortRequest;
             }
+        }
+
+        protected override X509Certificate OnCertificateNeeded(string hostname)
+        {
+            // for https support you need to return a certificate here
+            return null;
         }
     }
 }

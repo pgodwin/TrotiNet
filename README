@@ -4,3 +4,5 @@ reusable framework for developing any sort of C# proxies.
 TrotiNet is distributed under the GNU Lesser General Public License v3.0
 (LGPL). See: http://www.gnu.org/licenses/lgpl.html
 
+Use this command to create the necessary self signed certificate:
+makecert.exe cert.cer -a sha1 -n "CN=matt-dot-net" -sr LocalMachine -ss My -sky signature -pe -len 2048

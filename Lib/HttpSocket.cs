@@ -2,8 +2,12 @@
 //#define DEBUG_IO_1
 
 using System;
+using System.IO;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace TrotiNet
@@ -13,6 +17,9 @@ namespace TrotiNet
     /// </summary>
     public class HttpSocket: IDisposable
     {
+
+        private X509Certificate certificate;
+
 #if DEBUG_IO_1
         static readonly log4net.ILog log = Log.Get();
 #endif
@@ -20,7 +27,13 @@ namespace TrotiNet
         /// <summary>
         /// Socket UID.
         /// </summary>
-        public int id;
+        public int id;        
+
+        /// <summary>
+        /// Is this socket running over HTTPS
+        /// </summary>
+        public bool IsSecure { get; set; }
+
 
         /// <summary>
         /// Set the TCP Keep Alive option on the socket
@@ -67,10 +80,51 @@ namespace TrotiNet
         public HttpSocket(Socket socket)
         {
             LowLevelSocket = socket;
+            IsSecure = false;
+
+            try
+            {
+                LowLevelStream = new NetworkStream(socket);
+            }
+            catch (IOException)
+            {
+            }
 
             Buffer = new byte[BufferSize];
             sb = new StringBuilder(128);
         }
+
+        /// <summary>
+        /// Switches this socket to a secure connection
+        /// </summary>
+        /// <param name="certificateFileName"></param>
+        public void MakeSecureServer(X509Certificate certificate)
+        {
+            this.certificate = certificate;
+
+            if (IsSecure)
+                return;
+
+            IsSecure = true;
+            LowLevelSecureStream = new SslStream(LowLevelStream, false, AcceptAllCertifications);
+            LowLevelSecureStream.AuthenticateAsServer(certificate, false, SslProtocols.Tls | SslProtocols.Ssl3 | SslProtocols.Ssl2, true);
+        }
+
+        public void MakeSecureClient(string host)
+        {
+            if (IsSecure)
+                return;
+
+            IsSecure = true;
+            LowLevelSecureStream = new SslStream(LowLevelStream, false, AcceptAllCertifications);
+            LowLevelSecureStream.AuthenticateAsClient(host, new X509CertificateCollection(), SslProtocols.Tls | SslProtocols.Ssl3 | SslProtocols.Ssl2, false);
+            
+        }
+
+        private static bool AcceptAllCertifications(object sender, X509Certificate certification, X509Chain chain, SslPolicyErrors sslPolicyErrors)
+        {
+            return true;
+        } 
 
         /// <summary>
         /// Close the wrapped socket
@@ -90,6 +144,16 @@ namespace TrotiNet
         /// Returns the wrapped socket
         /// </summary>
         protected Socket LowLevelSocket = null;
+
+        /// <summary>
+        /// Returns the network stream for the wrapped socket
+        /// </summary>
+        protected Stream LowLevelStream = null;
+
+        /// <summary>
+        /// Returns the secure network stream for the wrapped socket
+        /// </summary>
+        protected SslStream LowLevelSecureStream = null;
 
 #if DEBUG_IO_1
         void Trace(string msg)
@@ -253,7 +317,7 @@ namespace TrotiNet
             Trace("ReadRaw before Receive " + LowLevelSocket.Connected);
 #endif
 
-            int r = LowLevelSocket.Receive(Buffer);
+            int r = IsSecure ? LowLevelSecureStream.Read(Buffer, 0, Buffer.Length) : LowLevelStream.Read(Buffer, 0, Buffer.Length);
             // Notes:
             // - if we are using non-infinite timeouts (not true from
             //  TrotiNet.Test), timeouts would be signalled by thrown
@@ -540,11 +604,17 @@ namespace TrotiNet
         public uint WriteBinary(byte[] b, uint offset, uint nb_bytes)
         {
             LowLevelSocket.NoDelay = true;
-            int r = LowLevelSocket.Send(b, (int)offset, (int)nb_bytes,
-                SocketFlags.None);
-            if (r < 0)
-                r = 0;
-            return (uint)r;
+
+            if (IsSecure)
+            {
+                LowLevelSecureStream.Write(b, (int)offset, (int)nb_bytes);
+            }
+            else
+            {
+                LowLevelStream.Write(b, (int)offset, (int)nb_bytes);
+            }
+            return nb_bytes;
+
         }
 #endregion
 
