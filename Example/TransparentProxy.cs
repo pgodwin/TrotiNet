@@ -11,6 +11,7 @@
  * and OnReceiveResponse(), which are called by the base class ProxyLogic.
  */
 using System;
+using System.Security.Cryptography.X509Certificates;
 
 namespace TrotiNet.Example
 {
@@ -35,6 +36,12 @@ namespace TrotiNet.Example
             Console.WriteLine("<- " + ResponseStatusLine +
                 " with HTTP Content-Length: " +
                 (ResponseHeaders.ContentLength ?? 0));
+        }
+
+        protected override X509Certificate OnCertificateNeeded(string hostname)
+        {
+            // for https support you need to return a certificate here
+            return null;
         }
     }
 }

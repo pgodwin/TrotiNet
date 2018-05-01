@@ -1,14 +1,21 @@
 using System;
-using System.IO;
-using System.IO.Compression;
-using System.Linq;
-using System.Net;
-using System.Net.Sockets;
-using System.Text;
-using log4net;
 
 namespace TrotiNet
 {
+    using System;
+    using System.Linq;
+    using System.IO;
+    using System.IO.Compression;
+using System.Linq;
+    using System.Net;
+    using System.Net.Sockets;
+    using System.Text;
+    using log4net;
+    using System.Threading;
+    using System.Security.Cryptography.X509Certificates;
+    using System.Threading.Tasks;
+    using System.Diagnostics;
+
     /// <summary>
     /// Abstract class for all HTTP proxy logic implementations
     /// </summary>
@@ -17,6 +24,13 @@ namespace TrotiNet
     /// </remarks>
     public abstract class AbstractProxyLogic
     {
+        // TODO make this a configuration
+        protected static readonly string rootCertificateFileName = "BrowseEmAllRootCert.cer";
+
+        /// <summary>
+        /// The SSL certificate used to generate SSL connections with the browser
+        /// </summary>        
+
         static readonly ILog log = Log.Get();
 
         /// <summary>
@@ -88,7 +102,7 @@ namespace TrotiNet
         /// If SocketPS is already connected to the right host and port,
         /// the socket is reused as is.
         /// </remarks>
-        protected void Connect(string hostname, int port)
+        protected void Connect(string hostname, int port, bool secure)
         {
             System.Diagnostics.Debug.Assert(!String.IsNullOrEmpty(hostname));
             System.Diagnostics.Debug.Assert(port > 0);
@@ -111,15 +125,14 @@ namespace TrotiNet
                 SocketPS = null;
             }
 
-            IPAddress[] ips = Dns.GetHostAddresses(hostname);
+            IPAddress[] ips = Resolve(hostname);
             Socket socket = null;
             Exception e = null;
             foreach (var ip in ips)
             {
                 try
                 {
-                    socket = new Socket(ip.AddressFamily, SocketType.Stream,
-                        ProtocolType.Tcp);
+                    socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
                     socket.Connect(ip, port);
                     break;
                 }
@@ -145,10 +158,18 @@ namespace TrotiNet
 
             // Checked up, and good to go
             SocketPS = new HttpSocket(socket);
+            //if (secure)
+            //    SocketPS.MakeSecureClient(hostname);
             DestinationHostName = hostname;
             DestinationPort = port;
 
             log.Debug("SocketPS connected to " + hostname + ":" + port);
+        }
+
+        private static IPAddress[] Resolve(string hostname)
+        {
+            IPAddress[] ips = Dns.GetHostAddresses(hostname);
+            return ips;
         }
 
         /// <summary>
@@ -170,8 +191,13 @@ namespace TrotiNet
             HttpRequestLine hrl, HttpHeaders hh_rq, out int port)
         {
             string host = null;
-            bool bIsConnect = hrl.Method.Equals("CONNECT");
-            port = bIsConnect ? 443 : 80;
+            port = DestinationPort;
+
+            if (DestinationPort == 0)
+                port = 80;
+
+            //bool bIsConnect = hrl.Method.Equals("CONNECT");
+            //port = bIsConnect ? 443 : 80;
 
             bool bIsHTTP1_0 = hrl.ProtocolVersion.Equals("1.0");
             if (hrl.URI.Equals("*"))
@@ -212,7 +238,7 @@ namespace TrotiNet
             {
                 // case 1
                 authority = hrl.URI;
-                System.Diagnostics.Debug.Assert(bIsConnect);
+                //System.Diagnostics.Debug.Assert(bIsConnect);
             }
             else
                 if (slash > 0) // Strict inequality
@@ -246,31 +272,15 @@ namespace TrotiNet
 
             if (host != null)
             {
-#if false
-                // XXX Not sure whether this can happen (without doing ad
-                // replacement) or if we want to prevent it
-                if (hh_rq.Host != null)
-                {
-                    // Does hh_rq.Host and host match? (disregarding
-                    // the potential ":port" prefix of hh_rq.Host)
-                    int c2 = hh_rq.Host.IndexOf(':');
-                    string rq_host = c2 < 0 ? hh_rq.Host :
-                        hh_rq.Host.Substring(0, c2);
-                    if (!rq_host.Equals(host))
-                        // Host discrepancy: fix the 'Host' header
-                        hh_rq.Host = host;
-                }
-#endif
-
                 // Remove the host from the request URI, unless the "server"
                 // is actually a proxy, in which case the URI should remain
                 // unchanged. (RFC 2616, section 5.1.2)
-                if (RelayHttpProxyHost == null)
-                {
-                    hrl.URI = hrl.URI.Substring(prefix);
-                    log.Debug("Rewriting request line as: " +
-                        hrl.RequestLine);
-                }
+                //if (!UsingHttpProxy)
+                //{
+                //    hrl.URI = hrl.URI.Substring(prefix);
+                //    log.Debug("Rewriting request line as: " +
+                //        hrl.RequestLine);
+                //}
 
                 return host;
             }
@@ -287,7 +297,7 @@ namespace TrotiNet
             else
             {
                 port = int.Parse(host.Substring(cp + 1));
-                host = host.Substring(0, cp);
+                host = host.Substring(0, cp);                
             }
             return host;
         }
@@ -532,6 +542,13 @@ namespace TrotiNet
         }
 
         /// <summary>
+        /// Called when a certificate for HTTPS sniffing is needed
+        /// </summary>
+        /// <param name="hostname">The hostname for the certificate, e.g. test.de</param>
+        /// <returns>The certificate used to secure the https tunnel</returns>
+        virtual protected X509Certificate OnCertificateNeeded(string hostname) { return null; }
+
+        /// <summary>
         /// Called when RequestLine and RequestHeaders are set
         /// </summary>
         /// <remarks>
@@ -577,17 +594,38 @@ namespace TrotiNet
 
             RequestHeaders = new HttpHeaders(SocketBP);
 
-            if (RequestLine.Method.Equals("CONNECT"))
-            {                
-                State.NextStep = SendSSLConfirmResponse;
-            }
-            else
-            {                
-                State.NextStep = SendRequest;
-            }
+            //if (RequestLine.Method.Equals("CONNECT"))
+            //{
+            //    State.NextStep = SendSSLConfirmResponse;
+            //}
+            //else
+            //{
+            //    State.NextStep = SendRequest;
+            //}
 
             log.Info("Got request " + RequestLine.RequestLine);
 
+            // We call OnReceiveRequest now because Connect() will
+            // modify the request URI.
+
+            this.RequestDetails = new RequestDetails
+            {
+                Method = RequestLine.Method,
+                Time = DateTime.Now.ToUniversalTime(),
+                Url = RequestLine.URI,
+                Hostname = new Uri(RequestLine.URI).Host,
+                Username = State.Username,
+                UserAgent = RequestHeaders.UserAgent
+            };
+
+            State.NextStep = SendRequest;
+            OnReceiveRequest();
+
+
+            if (RequestLine.Method.Equals("CONNECT"))
+            {
+                HandleConnect();
+            }
 
 
             // We need to check to see if authentication is required
@@ -657,25 +695,10 @@ namespace TrotiNet
                 }
 
             }
-
-            this.RequestDetails = new RequestDetails
-            {
-                Method = RequestLine.Method,
-                Time = DateTime.Now.ToUniversalTime(),
-                Url = RequestLine.URI,
-                Hostname = new Uri(RequestLine.URI).Host,
-                Username = State.Username,
-                UserAgent = RequestHeaders.UserAgent
-            };
+        
 
             //logEntry.SourceIP = SocketBP.
 
-            // We call OnReceiveRequest now because Connect() will
-            // modify the request URI.
-            OnReceiveRequest();
-
-
-           
 
             // Now we parse the request to:
             // 1) find out where we should connect
@@ -683,16 +706,25 @@ namespace TrotiNet
             // 3) find out whether the BP connection should be kept-alive
             if (State.NextStep != null)
             {
+
+                int NewDestinationPort;
+                string NewDestinationHost = ParseDestinationHostAndPort(RequestLine, RequestHeaders, out NewDestinationPort);
+
+                // Test if we need a proxy
+                IWebProxy proxy = WebRequest.GetSystemWebProxy();
+                Uri destinationUri =
+                    new Uri((SocketBP.IsSecure ? "https://" : "http://") + NewDestinationHost + ":" + NewDestinationPort);
+                Uri proxyUri = proxy.GetProxy(destinationUri);
+
                 // Step 1)
-                if (RelayHttpProxyHost == null)
+                if (RelayHttpProxyHost == null || proxyUri.Equals(destinationUri))
                 {
-                    int NewDestinationPort;
-                    string NewDestinationHost = ParseDestinationHostAndPort(
-                        RequestLine, RequestHeaders, out NewDestinationPort);
-                    Connect(NewDestinationHost, NewDestinationPort);
+                    Connect(NewDestinationHost, NewDestinationPort, destinationUri.Scheme.Equals("https"));
                 }
                 else
-                    Connect(RelayHttpProxyHost, RelayHttpProxyPort);
+                {
+                    Connect(proxyUri.Host, proxyUri.Port, proxyUri.Scheme.Equals("https"));
+                }
 
                 // Step 2)
                 // Find out whether the request has a message body
@@ -708,11 +740,10 @@ namespace TrotiNet
                     System.Diagnostics.Debug.Assert(
                         State.bRequestMessageChunked);
                 }
-                else
-                if (RequestHeaders.ContentLength != null)
+                else if (RequestHeaders.ContentLength != null)
                 {
                     State.RequestMessageLength =
-                        (uint)RequestHeaders.ContentLength;
+                        (uint) RequestHeaders.ContentLength;
 
                     // Note: HTTP 1.0 wants "Content-Length: 0" when there
                     // is no entity body. (RFC 1945, section 7.2)
@@ -745,9 +776,93 @@ namespace TrotiNet
                     RequestHeaders.ProxyConnection = null;
             }
 
-            // Note: we do not remove fields mentioned in the
-            //  'Connection' header (the specs say we should).
+        }
+        
 
+        /// <summary>
+        /// Handle a websocket handshake and tunnel the two ends
+        /// </summary>
+        private void HandleWebSocket()
+        {
+            this.State.NextStep = null;
+            var socketsToConnect = new[] { this.SocketPS, this.SocketBP };
+            var upDatedSoc = socketsToConnect.Zip(socketsToConnect.Reverse(), (from, to) => new { from, to }).ToList();
+            Parallel.ForEach(upDatedSoc, team => { team.from.TunnelDataTo(team.to); });
+            return;
+        }
+
+
+
+        /// <summary>
+        /// A specific case for the CONNECT command,
+        /// connect both ends blindly (will work for HTTPS, SSH and others)
+        /// </summary>
+        virtual protected void HandleConnect()
+        {
+            int NewDestinationPort;
+            string NewDestinationHost = ParseDestinationHostAndPort(
+                RequestLine, RequestHeaders, out NewDestinationPort);
+            Connect(NewDestinationHost, NewDestinationPort, true);
+            this.State.NextStep = null;
+            this.SocketBP.WriteAsciiLine(string.Format("HTTP/{0} 200 Connection established", RequestLine.ProtocolVersion));
+            this.SocketBP.WriteAsciiLine(string.Empty);
+            var socketsToConnect = new[] { this.SocketBP, this.SocketPS };
+
+            socketsToConnect
+                .Zip(socketsToConnect.Reverse(), (from, to) => new { from, to })
+                .AsParallel()
+                .ForAll(team => team.from.TunnelDataTo(team.to));
+        }
+
+
+
+        /// <summary>
+        /// A specific case for the CONNECT command,
+        /// connect both ends blindly (will work for HTTPS, SSH and others)
+        /// </summary>
+        virtual protected void HandleConnectTest()
+        {
+            HttpRequestLine originalRequestLine = RequestLine; //new HttpRequestLine(RequestLine.RequestLine);
+
+            int NewDestinationPort;
+            string NewDestinationHost = ParseDestinationHostAndPort(
+                RequestLine, RequestHeaders, out NewDestinationPort);
+            // Test if we need a proxy
+            IWebProxy proxy = WebRequest.GetSystemWebProxy();
+            Uri destinationUri = new Uri("https://" + NewDestinationHost + ":" + NewDestinationPort);
+            Uri proxyUri = proxy.GetProxy(destinationUri);
+
+            if (proxyUri.Equals(destinationUri))
+            {
+                Connect(NewDestinationHost, NewDestinationPort, destinationUri.Scheme.Equals("https"));
+            }
+            else
+            {
+                Connect(proxyUri.Host, proxyUri.Port, proxyUri.Scheme.Equals("https"));
+            }
+
+            if (proxyUri.Scheme.Equals("http"))
+            {
+                RequestLine = originalRequestLine;
+                RequestLine.SendTo(SocketPS);
+                RequestHeaders.SendTo(SocketPS);
+                ResponseStatusLine = new HttpStatusLine(SocketPS);
+                SocketPS.MakeSecureClient(NewDestinationHost + ":" + NewDestinationPort);                
+            }
+
+            this.State.NextStep = null;
+
+            this.SocketBP.WriteAsciiLine(string.Format("HTTP/{0} 200 Connection established", RequestLine.ProtocolVersion));
+            this.SocketBP.WriteAsciiLine(string.Empty);
+            var socketsToConnect = new[] { this.SocketBP, this.SocketPS };
+
+            X509Certificate certificate = OnCertificateNeeded(destinationUri.Host);
+
+            this.SocketBP.MakeSecureServer(certificate);
+            socketsToConnect
+                .Zip(socketsToConnect.Reverse(), (from, to) => new { from,to })
+                .AsParallel()
+                .ForAll(team => team.from.TunnelDataTo(team.to));
         }
 
         /// <summary>
@@ -757,6 +872,7 @@ namespace TrotiNet
         protected virtual void SendRequest()
         {
             // Transmit the request to the server
+
             RequestLine.SendTo(SocketPS);
             RequestHeaders.SendTo(SocketPS);
             if (State.bRequestHasMessage)
@@ -818,7 +934,8 @@ namespace TrotiNet
         {
             // Wait until we receive the response, then parse its header
             ResponseStatusLine = new HttpStatusLine(SocketPS);
-            ResponseHeaders = new HttpHeaders(SocketPS);
+
+            ResponseHeaders = new HttpHeaders(SocketPS);            
 
             // Get bPersistConnectionPS (RFC 2616, section 14.10)
             bool bUseDefaultPersistPS = true;
@@ -871,6 +988,17 @@ namespace TrotiNet
                 sc == 204 || sc == 304 || (sc >= 100 && sc <= 199))
             {
                 SendResponseStatusAndHeaders();
+
+                // Is the connection a websocket one?
+                if (sc == 101)
+                {
+                    string upgradeHeaderValue;
+                    ResponseHeaders.Headers.TryGetValue("upgrade", out upgradeHeaderValue);
+                    if (!string.IsNullOrEmpty(upgradeHeaderValue) && upgradeHeaderValue.ToLower().Equals("websocket"))
+                    {
+                        HandleWebSocket();
+                    }
+                }
                 goto no_message_body;
             }
 
@@ -1256,64 +1384,6 @@ namespace TrotiNet
         }
     }
 
-    /// <summary>
-    /// Dummy proxy that simply echoes back what it gets from the browser
-    /// </summary>
-    /// Used for TCP testing.
-    public class ProxyDummyEcho : AbstractProxyLogic
-    {
-        bool bPrintEchoPrefix;
-
-        /// <summary>
-        /// Instantiate a dummy proxy that echoes what it reads on the
-        /// socket back to it
-        /// </summary>
-        /// <param name="socketBP">Client socket</param>
-        /// <param name="PrintEchoPrefix">If true, the proxy will add an
-        /// "Echo" prefix for each message</param>
-        public ProxyDummyEcho(HttpSocket socketBP, bool PrintEchoPrefix):
-            base(socketBP)
-        {
-            bPrintEchoPrefix = PrintEchoPrefix;
-        }
-
-        /// <summary>
-        /// Static constructor with <c>PrintEchoPrefix = true</c>
-        /// </summary>
-        static public AbstractProxyLogic CreateEchoProxy(HttpSocket socketBP)
-        {
-            return new ProxyDummyEcho(socketBP, true);
-        }
-
-        /// <summary>
-        /// Static constructor with <c>PrintEchoPrefix = false</c>
-        /// </summary>
-        static public AbstractProxyLogic CreateMirrorProxy(HttpSocket socketBP)
-        {
-            return new ProxyDummyEcho(socketBP, false);
-        }
-
-        /// <summary>
-        /// Dummy logic loop, for test purposes
-        /// </summary>
-        override public bool LogicLoop()
-        {
-            uint r = SocketBP.ReadBinary();
-            if (r == 0)
-                // Connection closed
-                return false;
-
-            string s = System.Text.ASCIIEncoding.ASCII.GetString(
-                SocketBP.Buffer, 0, (int)r);
-            if (bPrintEchoPrefix)
-                SocketBP.WriteBinary(System.Text.ASCIIEncoding.
-                    ASCII.GetBytes("Echo: "));
-            SocketBP.WriteBinary(SocketBP.Buffer, r);
-
-            if (s.StartsWith("x"))
-                return false;
-            return true;
-        }
     }
     /// <summary>
     /// Object to make it easier to implement custom Proxies
@@ -1327,5 +1397,4 @@ namespace TrotiNet
         public DateTime Time { get; set; }
         public string Method { get; set; }
         public string UserAgent { get; set; }
-    }
 }

@@ -105,5 +105,6 @@ namespace TrotiNet
         {
             RequestLine = Method + " " + URI + " HTTP/" + ProtocolVersion;
         }
+    
     }
 }
