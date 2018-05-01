@@ -72,7 +72,7 @@ namespace TestClient
             Server.InitListenFinished.WaitOne();
             if (Server.InitListenException != null)
                 throw Server.InitListenException;
-
+            Console.WriteLine("Started on 12345");
             while (true)
                 System.Threading.Thread.Sleep(1000);
 

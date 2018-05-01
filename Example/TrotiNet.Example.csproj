@@ -72,7 +72,7 @@
   <ItemGroup>
     <None Include="app.config" />
     <None Include="packages.config" />
-      <Name>TrotiNet.Lib</Name>
+  </ItemGroup>
   <ItemGroup>
     <BootstrapperPackage Include="Microsoft.Net.Client.3.5">
       <Visible>False</Visible>

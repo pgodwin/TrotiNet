@@ -66,7 +66,7 @@ namespace TrotiNet
         /// <summary>
         /// Original request line as seen in the TCP stream
         /// </summary>
-        public string RequestLine { get; set; }
+        public string RequestLine { get; protected set; }
 
         internal HttpRequestLine(HttpSocket hs)
         {
@@ -88,20 +88,6 @@ namespace TrotiNet
         }
         readonly char[] sp = { ' ' };
 
-        internal HttpRequestLine(string line)
-        {
-            string[] items = line.Split(sp,
-                StringSplitOptions.RemoveEmptyEntries);
-            if (items.Length != 3)
-                throw new HttpProtocolBroken("Unrecognized request line '" +
-                    line + "'");
-
-            RequestLine = line;
-            Method = items[0];
-            URI = items[1];
-            ProtocolVersion = ParserHelper.ParseProtocolVersion(items[2]);
-        }
-
         internal void SendTo(HttpSocket hs)
         {
             hs.WriteAsciiLine(RequestLine);
@@ -119,5 +105,6 @@ namespace TrotiNet
         {
             RequestLine = Method + " " + URI + " HTTP/" + ProtocolVersion;
         }
+    
     }
 }

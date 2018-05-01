@@ -1,3 +1,5 @@
+using System;
+
 namespace TrotiNet
 {
     using System;
@@ -156,8 +158,8 @@ using System.Linq;
 
             // Checked up, and good to go
             SocketPS = new HttpSocket(socket);
-            if (secure)
-                SocketPS.MakeSecureClient(hostname);
+            //if (secure)
+            //    SocketPS.MakeSecureClient(hostname);
             DestinationHostName = hostname;
             DestinationPort = port;
 
@@ -592,17 +594,38 @@ using System.Linq;
 
             RequestHeaders = new HttpHeaders(SocketBP);
 
-            if (RequestLine.Method.Equals("CONNECT"))
-            {                
-                State.NextStep = SendSSLConfirmResponse;
-            }
-            else
-            {                
-                State.NextStep = SendRequest;
-            }
+            //if (RequestLine.Method.Equals("CONNECT"))
+            //{
+            //    State.NextStep = SendSSLConfirmResponse;
+            //}
+            //else
+            //{
+            //    State.NextStep = SendRequest;
+            //}
 
             log.Info("Got request " + RequestLine.RequestLine);
 
+            // We call OnReceiveRequest now because Connect() will
+            // modify the request URI.
+
+            this.RequestDetails = new RequestDetails
+            {
+                Method = RequestLine.Method,
+                Time = DateTime.Now.ToUniversalTime(),
+                Url = RequestLine.URI,
+                Hostname = new Uri(RequestLine.URI).Host,
+                Username = State.Username,
+                UserAgent = RequestHeaders.UserAgent
+            };
+
+            State.NextStep = SendRequest;
+            OnReceiveRequest();
+
+
+            if (RequestLine.Method.Equals("CONNECT"))
+            {
+                HandleConnect();
+            }
 
 
             // We need to check to see if authentication is required
@@ -672,27 +695,10 @@ using System.Linq;
                 }
 
             }
-
-            this.RequestDetails = new RequestDetails
-            {
-                Method = RequestLine.Method,
-                Time = DateTime.Now.ToUniversalTime(),
-                Url = RequestLine.URI,
-                Hostname = new Uri(RequestLine.URI).Host,
-                Username = State.Username,
-                UserAgent = RequestHeaders.UserAgent
-            };
+        
 
             //logEntry.SourceIP = SocketBP.
 
-            // We call OnReceiveRequest now because Connect() will
-            // modify the request URI.
-            OnReceiveRequest();
-
-
-           
-
-            }
 
             // Now we parse the request to:
             // 1) find out where we should connect
@@ -706,19 +712,14 @@ using System.Linq;
 
                 // Test if we need a proxy
                 IWebProxy proxy = WebRequest.GetSystemWebProxy();
-                Uri destinationUri = new Uri((SocketBP.IsSecure ? "https://" : "http://") + NewDestinationHost + ":" + NewDestinationPort);
+                Uri destinationUri =
+                    new Uri((SocketBP.IsSecure ? "https://" : "http://") + NewDestinationHost + ":" + NewDestinationPort);
                 Uri proxyUri = proxy.GetProxy(destinationUri);
 
-                if (proxyUri.Equals(destinationUri))
+                // Step 1)
+                if (RelayHttpProxyHost == null || proxyUri.Equals(destinationUri))
                 {
                     Connect(NewDestinationHost, NewDestinationPort, destinationUri.Scheme.Equals("https"));
-                // Step 1)
-                if (RelayHttpProxyHost == null)
-                {
-                    int NewDestinationPort;
-                    string NewDestinationHost = ParseDestinationHostAndPort(
-                        RequestLine, RequestHeaders, out NewDestinationPort);
-                    Connect(NewDestinationHost, NewDestinationPort);
                 }
                 else
                 {
@@ -739,11 +740,10 @@ using System.Linq;
                     System.Diagnostics.Debug.Assert(
                         State.bRequestMessageChunked);
                 }
-                else
-                if (RequestHeaders.ContentLength != null)
+                else if (RequestHeaders.ContentLength != null)
                 {
                     State.RequestMessageLength =
-                        (uint)RequestHeaders.ContentLength;
+                        (uint) RequestHeaders.ContentLength;
 
                     // Note: HTTP 1.0 wants "Content-Length: 0" when there
                     // is no entity body. (RFC 1945, section 7.2)
@@ -772,9 +772,12 @@ using System.Linq;
                         break;
                     }
                 }
+                if (RelayHttpProxyHost == null)
+                    RequestHeaders.ProxyConnection = null;
             }
 
         }
+        
 
         /// <summary>
         /// Handle a websocket handshake and tunnel the two ends
@@ -788,13 +791,38 @@ using System.Linq;
             return;
         }
 
+
+
         /// <summary>
         /// A specific case for the CONNECT command,
         /// connect both ends blindly (will work for HTTPS, SSH and others)
         /// </summary>
         virtual protected void HandleConnect()
         {
-            HttpRequestLine originalRequestLine = new HttpRequestLine(RequestLine.RequestLine);
+            int NewDestinationPort;
+            string NewDestinationHost = ParseDestinationHostAndPort(
+                RequestLine, RequestHeaders, out NewDestinationPort);
+            Connect(NewDestinationHost, NewDestinationPort, true);
+            this.State.NextStep = null;
+            this.SocketBP.WriteAsciiLine(string.Format("HTTP/{0} 200 Connection established", RequestLine.ProtocolVersion));
+            this.SocketBP.WriteAsciiLine(string.Empty);
+            var socketsToConnect = new[] { this.SocketBP, this.SocketPS };
+
+            socketsToConnect
+                .Zip(socketsToConnect.Reverse(), (from, to) => new { from, to })
+                .AsParallel()
+                .ForAll(team => team.from.TunnelDataTo(team.to));
+        }
+
+
+
+        /// <summary>
+        /// A specific case for the CONNECT command,
+        /// connect both ends blindly (will work for HTTPS, SSH and others)
+        /// </summary>
+        virtual protected void HandleConnectTest()
+        {
+            HttpRequestLine originalRequestLine = RequestLine; //new HttpRequestLine(RequestLine.RequestLine);
 
             int NewDestinationPort;
             string NewDestinationHost = ParseDestinationHostAndPort(
